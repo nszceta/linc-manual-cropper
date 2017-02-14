@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style>
+        .bordered {
+            border: 1px solid;
+            padding: 5px;
+            display: inline-block;
+        }
+
+        canvas {
+            margin-top: 10px;
+        }
+
+        body {
+            margin: 20px;
+        }
+    </style>
+</head>
+<body>
+<div>
+    <p>make sure your boxes are all around the same size and you have enough to cover most of the image</p>
+    <div class="bordered">
+        <label for="current_idx">current idx: </label>
+        <input id="current_idx" type="number" step="1"/>
+    </div>
+    <div class="bordered">
+        <label for="annotation_exists">annotation exists? </label>
+        <input id="annotation_exists" type="checkbox" disabled>
+    </div>
+</div>
+<canvas id="canvas"></canvas>
+<div>
+    <div class="bordered">
+        face <input type="radio" name="feature" value="face"/>
+    </div>
+    <div class="bordered">
+        whisker <input type="radio" name="feature" value="whisker"/>
+    </div>
+    <button id="next">move on to the next lion</button>
+    <button id="last">go back to the previous lion</button>
+</div>
+</body>
+
+<script src="js/jquery-3.1.1.min.js"></script>
+<script src="js/lodash.min.js"></script>
+<script>
+    var canvas = document.getElementById('canvas');
+    var ctx = canvas.getContext('2d');
+    var width;
+    var height;
+    var target_size = 700;
+    var roi = [];
+    var mode = 'center';  // or edge; used for drawing rectangles
+    var center;  // store the center point of a rectangle
+    var annotation_idx = 0;
+
+    function reset(url) {
+        document.getElementById('current_idx').value = annotation_idx;
+        var img = new Image();
+        img.onload = function () {
+            var new_width;
+            var new_height;
+            var ratio;
+            if (img.width > img.height && img.width > target_size) {
+                ratio = img.width / target_size;
+                new_width = img.width / ratio;
+                new_height = img.height / ratio;
+            } else if (img.height > img.width && img.height > target_size) {
+                ratio = img.height / target_size;
+                new_width = img.width / ratio;
+                new_height = img.height / ratio;
+            } else {
+                new_width = img.width;
+                new_height = img.height;
+            }
+            width = parseInt(new_width);
+            height = parseInt(new_height);
+            ctx.canvas.width = width;
+            ctx.canvas.height = height;
+            ctx.drawImage(img, 0, 0, width, height);
+        };
+        img.src = url;
+        console.log(url);
+    }
+
+    function init_reset() {
+        $.ajax({
+            url: '/next', data: JSON.stringify({'annotation_idx': annotation_idx}, null, '\t'),
+            contentType: "application/json; charset=utf-8", dataType: 'json', method: 'POST',
+            success: function (data) {
+                var img_url = data['img_url'];
+                var annotation_exists = data['annotation_exists'];
+                document.getElementById('annotation_exists').checked = !!annotation_exists;
+                if (_.isString(img_url)) {
+                    reset(img_url);
+                }
+            }
+        });
+    }
+
+    function bootstrap() {
+
+        document.getElementById('current_idx').addEventListener('change', function () {
+            annotation_idx = parseInt($(this).val());
+            init_reset();
+        }, false);
+
+        document.getElementById('next').addEventListener('click', function () {
+            var data = {roi: roi, annotation_idx: annotation_idx, width: width, height: height};
+            annotation_idx += 1;
+            $.post({
+                url: '/annotation', data: JSON.stringify(data, null, '\t'),
+                contentType: "application/json; charset=utf-8", dataType: 'json',
+                success: function () {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    roi = [];
+                    mode = 'center';
+                    init_reset();
+                }, error: function () {
+                    alert('error');
+                }
+            });
+        }, false);
+
+        document.getElementById('last').addEventListener('click', function () {
+            var data = {roi: roi, annotation_idx: annotation_idx, width: width, height: height};
+            annotation_idx -= 1;
+            $.post({
+                url: '/annotation', data: JSON.stringify(data, null, '\t'),
+                contentType: "application/json; charset=utf-8", dataType: 'json',
+                success: function () {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    roi = [];
+                    mode = 'center';
+                    init_reset();
+                }, error: function () {
+                    alert('error');
+                }
+            });
+        }, false);
+
+        canvas.addEventListener('click', function (event) {
+            var feat = $('input[name=feature]:checked').val();
+            if (_.isNil(feat)) {
+                return alert('select a feature');
+            }
+            var rect = canvas.getBoundingClientRect();
+            var x = event.clientX - rect.left;
+            var y = event.clientY - rect.top;
+            if (mode == 'center') {
+                mode = 'edge';
+                center = {x: x, y: y};
+            } else if (mode == 'edge') {
+                mode = 'center';
+                var w = x - center.x;
+                var h = y - center.y;
+                var i = 3;
+                while (i--) {
+                    ctx.strokeRect(center.x, center.y, w, h);
+                }
+                ctx.fillStyle = "rgba(0,255,0,0.3)";
+                ctx.fillRect(center.x, center.y, w, h);
+                roi.push({
+                    feat: feat,
+                    x1: center.x, y1: center.y,
+                    x2: center.x + w, y2: center.y + h
+                });
+            }
+        }, false);
+
+        init_reset();
+    }
+
+    bootstrap();
+</script>
+</html>
