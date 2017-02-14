@@ -9,7 +9,7 @@ import os
 import json
 from PIL import Image
 
-rootdir = 'static/images/'
+rootdir = 'static/uncropped/'
 js = [x for x in os.listdir(rootdir) if x.endswith('.json')]
 for j in js:
     jsonpath = rootdir + j
